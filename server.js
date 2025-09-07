@@ -1,7 +1,7 @@
 const express = require("express");
 const QRCode = require("qrcode");
 const path = require("path");
-const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,38 +11,61 @@ app.use(express.static("public"));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Set view engine to serve HTML
-app.set("view engine", "html");
+// In-memory user store: key is userId, value is { id, name }
+const users = {};
 
-const users = new Map();
+// Helper: generate a consistent 10-digit ID for a name
+function getUserId(name) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(name.trim().toLowerCase())
+    .digest("hex");
+  const num = Math.abs(parseInt(hash.slice(0, 15), 16))
+    .toString()
+    .padStart(10, "0")
+    .slice(0, 10);
+  return num;
+}
 
 // Homepage route
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+app.post("/create-user", (req, res) => {
+  const { name } = req.body;
+  if (!name || typeof name !== "string" || name.trim() === "") {
+    return res.status(400).send("Name is required");
+  }
+  const trimmedName = name.trim();
+  const userId = getUserId(trimmedName);
+  if (users[userId]) {
+    return res.status(409).send("User already exists");
+  }
+  users[userId] = {
+    id: userId,
+    name: trimmedName,
+  };
+  res.redirect(`/user/${userId}/qr`);
+});
+
 app.get("/user/:id", (req, res) => {
   const userId = req.params.id;
-  const user = users.get(userId);
-
+  const user = users[userId];
   if (!user) {
     return res.status(404).send("User not found");
   }
-
   res.send(`id: ${user.id}`);
 });
 
 app.get("/user/:id/qr", async (req, res) => {
   try {
     const userId = req.params.id;
-    const user = users.get(userId);
-
+    const user = users[userId];
     if (!user) {
       return res.status(404).send("User not found");
     }
-
     const qrText = `id: ${user.id}`;
-
     const qrCodeDataURL = await QRCode.toDataURL(qrText, {
       width: 300,
       margin: 2,
@@ -51,48 +74,45 @@ app.get("/user/:id/qr", async (req, res) => {
         light: "#FFFFFF",
       },
     });
-
     res.send(`
-      <html>
+      <!DOCTYPE html>
+      <html lang="en">
         <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <title>QR Code for ${user.name}</title>
-          <style>
-            body { 
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-              text-align: center; 
-              padding: 50px; 
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-              min-height: 100vh; 
-              margin: 0; 
-            }
-            .container { 
-              background: white; 
-              padding: 40px; 
-              border-radius: 20px; 
-              box-shadow: 0 20px 40px rgba(0,0,0,0.1); 
-              max-width: 500px; 
-              margin: 0 auto; 
-            }
-            h1 { color: #333; margin-bottom: 20px; }
-            .qr-code { margin: 30px 0; }
-            .info { background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 20px 0; }
-            a { color: #667eea; text-decoration: none; font-weight: 600; }
-            a:hover { text-decoration: underline; }
-          </style>
+          <link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap' rel='stylesheet'>
+          <link rel="stylesheet" href="/styles/qr.css">
         </head>
         <body>
           <div class="container">
             <h1>🔗 Your QR Code</h1>
             <div class="info">
               <p><strong>Name:</strong> ${user.name}</p>
-              <p><strong>User ID:</strong> ${user.id}</p>
+              <p><strong>User ID:</strong> <span id="user-id">${user.id}</span></p>
+              <button class="btn" id="copy-btn" type="button">Copy User ID</button>
+              <span id="copy-status">Copied!</span>
             </div>
             <div class="qr-code">
               <img src="${qrCodeDataURL}" alt="QR Code for ${user.name}" />
             </div>
-            <p>Scan this QR code to see your ID!</p>
-            <p><a href="/user/${userId}">View Profile</a> | <a href="/">← Create Another User</a></p>
+            <div class="links">
+              <a href="/user/${userId}">View Profile</a> | <a href="/">← Create Another User</a>
+            </div>
           </div>
+          <script>
+            const copyBtn = document.getElementById('copy-btn');
+            const copyStatus = document.getElementById('copy-status');
+            copyBtn.onclick = function() {
+              const userId = document.getElementById('user-id').textContent;
+              navigator.clipboard.writeText(userId).then(function() {
+                copyStatus.classList.add('show');
+                setTimeout(function() {
+                  copyStatus.classList.remove('show');
+                }, 1200);
+              });
+            };
+          </script>
         </body>
       </html>
     `);
@@ -102,24 +122,61 @@ app.get("/user/:id/qr", async (req, res) => {
   }
 });
 
-app.post("/create-user", (req, res) => {
+// REST API endpoints
+// Get all users
+app.get('/api/users', (req, res) => {
+  const allUsers = Object.values(users);
+  res.json(allUsers);
+});
+
+// Get a user by ID
+app.get('/api/users/:id', (req, res) => {
+  const user = users[req.params.id];
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json(user);
+});
+
+// Create a user
+app.post('/api/users', (req, res) => {
   const { name } = req.body;
-
-  if (!name || name.trim() === "") {
-    return res.status(400).json({ error: "Name is required" });
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return res.status(400).json({ error: 'Name is required' });
   }
+  const trimmedName = name.trim();
+  const userId = getUserId(trimmedName);
+  if (users[userId]) {
+    return res.status(409).json({ error: 'User already exists' });
+  }
+  users[userId] = { id: userId, name: trimmedName };
+  res.status(201).json(users[userId]);
+});
 
-  const userId = Math.floor(Math.random() * 100000000).toString();
-  const user = {
-    id: userId,
-    name: name.trim(),
-    createdAt: new Date().toISOString(),
-  };
+// Delete a user
+app.delete('/api/users/:id', (req, res) => {
+  const user = users[req.params.id];
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  delete users[req.params.id];
+  res.json({ success: true });
+});
 
-  users.set(userId, user);
-
-  // Redirect to show the QR code
-  res.redirect(`/user/${userId}/qr`);
+// Get QR code for a user
+app.get('/api/users/:id/qr', async (req, res) => {
+  const user = users[req.params.id];
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const qrText = `id: ${user.id}`;
+  try {
+    const qrCodeDataURL = await QRCode.toDataURL(qrText, {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    });
+    res.json({ qr: qrCodeDataURL });
+  } catch (error) {
+    res.status(500).json({ error: 'Error generating QR code' });
+  }
 });
 
 // Start server

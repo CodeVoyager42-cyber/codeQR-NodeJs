@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR API Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles/main.css">
+  <style>
+    .dashboard {
+      margin-top: 24px;
+      background: var(--card-bg);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 32px 24px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      border: 1px solid var(--border);
+    }
+    .dashboard h2 {
+      margin-bottom: 18px;
+      color: var(--accent);
+      font-size: 1.3rem;
+      font-weight: 700;
+    }
+    .dashboard form, .dashboard .actions {
+      margin-bottom: 24px;
+    }
+    .dashboard input, .dashboard button {
+      font-size: 1rem;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+    .dashboard table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    .dashboard th, .dashboard td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .dashboard th {
+      background: var(--input-bg);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .dashboard .qr-img {
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+    .dashboard .delete-btn {
+      background: #fff;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 12px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .dashboard .delete-btn:hover {
+      background: #eee;
+    }
+    .dashboard .qr-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 12px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-left: 4px;
+      transition: background 0.2s;
+    }
+    .dashboard .qr-btn:hover {
+      background: #222;
+    }
+    .dashboard .status {
+      color: var(--muted);
+      font-size: 0.98em;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container dashboard">
+    <a href="/" class="btn" style="display:inline-block; text-decoration:none; margin-bottom:18px; width:40px; height:40px; padding:0; font-size:1.5rem; line-height:40px; text-align:center;">
+      &#8592;
+    </a>
+    <h2>QR Code API Dashboard</h2>
+    <div class="status" id="status"></div>
+    <form id="create-user-form">
+      <input type="text" id="new-user-name" placeholder="Enter name" required>
+      <button type="submit" class="btn">Create User</button>
+    </form>
+    <div class="actions">
+      <input type="text" id="search-id" placeholder="User ID">
+      <button type="button" class="btn" onclick="getUser()">Get User</button>
+      <button type="button" class="btn" onclick="getUserQR()">Get QR Code</button>
+      <button type="button" class="btn" onclick="deleteUser()">Delete User</button>
+    </div>
+    <div id="user-result"></div>
+    <h3>All Users</h3>
+    <table id="users-table">
+      <thead>
+        <tr><th>Name</th><th>ID</th><th>QR Code</th><th>Delete</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <script>
+    const status = document.getElementById('status');
+    const usersTableBody = document.querySelector('#users-table tbody');
+    const userResult = document.getElementById('user-result');
+
+    function setStatus(msg) {
+      status.textContent = msg;
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    }
+
+    async function fetchUsers() {
+      const res = await fetch('/api/users');
+      const users = await res.json();
+      usersTableBody.innerHTML = '';
+      users.forEach(user => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${user.name}</td><td>${user.id}</td>
+          <td><button class='qr-btn' onclick='showQR("${user.id}")'>Show QR</button><span id='qr-${user.id}'></span></td>
+          <td><button class='delete-btn' onclick='deleteUserById("${user.id}")'>Delete</button></td>`;
+        usersTableBody.appendChild(tr);
+      });
+    }
+
+    async function showQR(id) {
+      const qrSpan = document.getElementById('qr-' + id);
+      if (qrSpan.innerHTML) {
+        qrSpan.innerHTML = '';
+        return;
+      }
+      const res = await fetch(`/api/users/${id}/qr`);
+      const data = await res.json();
+      qrSpan.innerHTML = `<img src='${data.qr}' class='qr-img' alt='QR for ${id}' />`;
+    }
+
+    document.getElementById('create-user-form').onsubmit = async function(e) {
+      e.preventDefault();
+      const name = document.getElementById('new-user-name').value;
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        setStatus('User created!');
+        fetchUsers();
+        this.reset();
+      } else if (res.status === 409) {
+        setStatus('User already exists!');
+      } else {
+        setStatus('Error creating user');
+      }
+    };
+
+    async function getUser() {
+      const id = document.getElementById('search-id').value;
+      if (!id) return setStatus('Enter User ID');
+      const res = await fetch(`/api/users/${id}`);
+      if (res.ok) {
+        const user = await res.json();
+        userResult.innerHTML = `<div><strong>Name:</strong> ${user.name} <strong>ID:</strong> ${user.id}</div>`;
+      } else {
+        userResult.innerHTML = '<div>User not found</div>';
+      }
+    }
+
+    async function getUserQR() {
+      const id = document.getElementById('search-id').value;
+      if (!id) return setStatus('Enter User ID');
+      const res = await fetch(`/api/users/${id}/qr`);
+      if (res.ok) {
+        const data = await res.json();
+        userResult.innerHTML = `<img src='${data.qr}' class='qr-img' alt='QR for ${id}' />`;
+      } else {
+        userResult.innerHTML = '<div>QR not found</div>';
+      }
+    }
+
+    async function deleteUser() {
+      const id = document.getElementById('search-id').value;
+      if (!id) return setStatus('Enter User ID');
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStatus('User deleted');
+        fetchUsers();
+        userResult.innerHTML = '';
+      } else {
+        setStatus('User not found');
+      }
+    }
+
+    async function deleteUserById(id) {
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStatus('User deleted');
+        fetchUsers();
+      } else {
+        setStatus('User not found');
+      }
+    }
+
+    fetchUsers();
+  </script>
+</body>
+</html>

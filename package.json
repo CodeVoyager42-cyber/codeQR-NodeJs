@@ -8,14 +8,23 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "dotenv": "^17.2.2",
     "express": "^4.18.2",
+    "mongodb": "^6.3.0",
     "qrcode": "^1.5.3",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "mongoose": "^8.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
   },
-  "keywords": ["qr-code", "express", "nodejs", "uuid"],
+  "keywords": [
+    "qr-code",
+    "express",
+    "nodejs",
+    "uuid",
+    "mongodb"
+  ],
   "author": "",
   "license": "MIT"
 }
